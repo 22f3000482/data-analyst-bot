@@ -24,14 +24,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import requests
+from openai import OpenAI
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, PlainTextResponse
 
 # ---------------------------------------------------------------- config
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-AIPIPE_TOKEN = os.environ.get("AIPIPE_TOKEN", "")
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 MODEL = os.environ.get("MODEL", "gpt-4o")
-MODEL_BASE_URL = os.environ.get("MODEL_BASE_URL", "https://aipipe.org/openai/v1")
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000").rstrip("/")
 LOG_PATH = os.environ.get("LOG_PATH", "/tmp/run.jsonl")
 LOG_URL = f"{BASE_URL}/run.jsonl"
@@ -45,7 +46,7 @@ _log_lock = threading.Lock()
 _histories: dict[int, list[dict]] = {}  # chat_id -> chat-completion messages
 _hist_lock = threading.Lock()
 
-
+client = OpenAI(api_key=OPENAI_API_KEY)
 # ---------------------------------------------------------------- logging
 def log_event(**fields):
     fields["ts"] = datetime.now(timezone.utc).isoformat()
@@ -115,21 +116,18 @@ Rules:
 
 # ---------------------------------------------------------------- llm
 def chat_completion(messages, use_tools=True):
-    body = {"model": MODEL, "messages": messages, "temperature": 0}
+    kwargs = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": 0,
+    }
+
     if use_tools:
-        body["tools"] = TOOLS
-    r = requests.post(
-        f"{MODEL_BASE_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {AIPIPE_TOKEN}",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (data-analyst-bot)",
-        },
-        json=body,
-        timeout=180,
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]
+        kwargs["tools"] = TOOLS
+
+    response = client.chat.completions.create(**kwargs)
+
+    return response.choices[0].message.model_dump()
 
 
 def extract_json(text: str):
